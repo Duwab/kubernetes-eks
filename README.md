@@ -22,6 +22,15 @@ printenv | grep AWS
 envsubst < cluster-config.tpl.yaml > cluster-config.yaml
 ```
 
+## Overview
+
+An EKS cluster with 3 node groups :
+
+* placement policies to deploy features on specific node groups
+* auto-scaling for 2 node groups
+
+![Cluster Overview](./docs/eks-cluster-with-3-node-groups.png)
+
 ## Install eksctl
 
 According to [official documentation](https://eksctl.io/installation/)
