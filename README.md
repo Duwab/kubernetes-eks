@@ -75,9 +75,6 @@ k get svc # for external port
 k get nodes -o wide # for node IP
 curl <node-ip>:<port> # NB: can be necessary to update Security Groups on AWS side
 
-# run shell in tmp pod
-k run --rm -it --image alpine test
-
 k apply -f k8s/demo/demo-core.yaml
 k config set-context --current --namespace=demo
 ```
@@ -118,6 +115,8 @@ k scale deployment/deployment-demo --replicas=20
 
 ### Setup Load Balancer
 
+Check [./docs/game-2048](./docs/game-2048.md), which is an AWS tutorial for loadbalancer in EKS.
+
 ```shell
 k apply -f k8s/demo/demo-lb.yaml
 
@@ -139,9 +138,9 @@ k get ingress -n demo
 ### Push docker images to ECR
 
 ```shell
+aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 docker compose build
 docker compose push
-
 ```
 
 ### Push docker images to ECR
@@ -151,47 +150,39 @@ k delete -f k8s/demo/demo-core.yaml -f k8s/demo/demo-lb.yaml
 eksctl delete cluster -f cluster-config.yaml
 ```
 
-## Cheat sheet
 
-### EKS management
+### Manager app
 
-Check [AWS > EKS > Quick start](https://docs.aws.amazon.com/fr_fr/eks/latest/userguide/quickstart.html)
+Manager's pod are granted access to Kubernetes internal API to scale other deployments
 
 ```shell
-eksctl create cluster -f cluster-config.yaml
-# eksctl create cluster -n my-project --region=$AWS_REGION
-# eksctl delete cluster -n my-project --region=$AWS_REGION
-
-export CLUSTER_VPC=$(aws eks describe-cluster --name $CLUSTER_NAME --region $CLUSTER_REGION --query "cluster.resourcesVpcConfig.vpcId" --output text)
-
-# Run project
-kubectl create namespace game-2048 --save-config
-kubectl apply -n game-2048 -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.8.0/docs/examples/2048/2048_full.yaml
-kubectl delete -n game-2048 -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.8.0/docs/examples/2048/2048_full.yaml
-
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update eks
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-    --namespace kube-system \
-    --set clusterName=$CLUSTER_NAME \
-    --set serviceAccount.create=false \
-    --set region=${CLUSTER_REGION} \
-    --set vpcId=${CLUSTER_VPC} \
-    --set serviceAccount.name=aws-load-balancer-controller
-
-kubectl get ingress -n game-2048
-
-# To delete a cluster, no service should be running
-kubectl get svc --all-namespaces
-kubectl delete svc service-name
-eksctl delete cluster -f cluster-config.yaml
-eksctl delete cluster -n my-project
+k apply -f k8s/manager/manager.yaml
+k get pods --selector=app=manager-app -n default
+k exec -it manager-app-55c6747c7c-g9mwb -- bash
+node kube/scale-pods.js
+exit
+k get pods --selector=app.kubernetes.io/name=app-demo-2 -A
+k apply -f k8s/demo-2/demo-2-core.yaml
+k rollout status deployment/deployment-demo-2 -n demo-2
+k set image deployment/deployment-demo-2 app-demo-2=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/demo/api:0.0.4 -n demo-2
 ```
 
-### Kubernetes commands
+## Cheat sheet
 
 ```shell
 kubectl exec -it my-pod --container app-demo -- /bin/bash
+kubectl get svc --all-namespaces
+
+# run shell in tmp pod
+kubectl run --rm -it --image alpine test
+
+# create project cluster from scratch
+eksctl create cluster -n my-project --region=$AWS_REGION
+eksctl delete cluster -n my-project
+
+# create project from file
+eksctl create cluster -f cluster-config.yaml --region=$AWS_REGION
+eksctl delete cluster -f cluster-config.yaml
 ```
 
 ## EKS Auth
@@ -220,15 +211,6 @@ alias k=kubectl
 complete -o default -F __start_kubectl k
 ```
 
-## ECR for Docker images
-
-```shell
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-
-docker compose build
-docker compose push
-```
-
 ## Portainer configuration _(Untested)_
 
 Prerequisite: A working portainer server.
@@ -237,18 +219,3 @@ Then:
 
 * deploy the Portainer Agent on the Kubernetes cluster: `portainer-agent-k8s-nodeport.yaml`
 * Go to Portainer Server & connect to the agent
-
-
-## Manager app
-
-```shell
-k apply -f k8s/manager/manager.yaml
-k get pods --selector=app=manager-app -n default
-k exec -it manager-app-55c6747c7c-g9mwb -- bash
-node kube/scale-pods.js
-exit
-k get pods --selector=app.kubernetes.io/name=app-demo-2 -A
-k apply -f k8s/demo-2/demo-2-core.yaml
-k rollout status deployment/deployment-demo-2 -n demo-2
-k set image deployment/deployment-demo-2 app-demo-2=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/demo/api:0.0.4 -n demo-2
-```
