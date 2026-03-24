@@ -1,0 +1,89 @@
+# https://eksctl.io/usage/schema
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: ${CLUSTER_NAME}
+  region: ${AWS_REGION}
+
+managedNodeGroups:
+  - name: eks-mng
+    instanceType: t3.medium
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 3
+    # availabilityZones: ["eu-west-3a"]
+    # https://stackoverflow.com/questions/57494369/kubectl-apply-deployment-to-specified-node-group-aws-eks
+    # https://archive.eksworkshop.com/beginner/140_assigning_pods/affinity/
+    # https://eksctl.io/usage/nodegroup-managed/#managing-labels
+    labels: { "grp-role": "management" }
+    # tags:
+    #   nodegroup-role: management
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+  - name: eks-grp-1
+    instanceType: t3.medium
+    # https://blog.devops.dev/reduce-amazon-eks-cost-by-scaling-node-groups-to-zero-41dce9db50ef
+    # https://aws.amazon.com/blogs/containers/amazon-eks-now-supports-kubernetes-version-1-24/
+    # https://aws.amazon.com/blogs/containers/manage-scale-to-zero-scenarios-with-karpenter-and-serverless/
+    minSize: 0
+    maxSize: 20
+    labels: { "grp-role": "worker", "feature": "feature-1" }
+    # tags:
+    #   nodegroup-role: worker
+    #   nodegroup-feature: feature-1
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+  - name: eks-grp-2
+    instanceType: t3.medium
+    minSize: 0
+    maxSize: 20
+    labels: { "grp-role": "worker", "feature": "feature-2" }
+    # tags:
+    #   nodegroup-role: worker
+    #   nodegroup-feature: feature-2
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+
+iam:
+  withOIDC: true
+  # https://docs.aws.amazon.com/eks/latest/userguide/automode-get-started-eksctl.html
+  serviceRoleARN: arn:aws:iam::${AWS_ACCOUNT_ID}:role/MySingleEKSClusterRole
+  serviceAccounts: # aws grants roles to Kube ServiceAccount objects | helm > eks/aws-load-balancer-controller > serviceAccount.name
+  - metadata:
+      name: aws-load-balancer-controller
+      namespace: kube-system
+    wellKnownPolicies:
+      awsLoadBalancerController: true
+
+addons:
+  - name: aws-ebs-csi-driver
+    wellKnownPolicies: # Adds an IAM service account
+      ebsCSIController: true
+
+cloudWatch:
+ clusterLogging:
+   enableTypes: ["*"]
+   logRetentionInDays: 30
+
+# iamIdentityMappings: deprecated ?
+
+# https://eksctl.io/usage/access-entries/
+accessConfig:
+  accessEntries:
+    - principalARN: arn:aws:iam::${AWS_ACCOUNT_ID}:root
+      type: STANDARD
+      accessPolicies:
+        - policyARN: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          accessScope:
+              type: cluster
+
+# https://docs.aws.amazon.com/eks/latest/userguide/automode-get-started-eksctl.html
+# Il faut avoir le rôle qu'il faut pour que ça fonctionne
+# cf l'interface pour voir comment ça fonctionne
+# autoModeConfig:
+#   # defaults to false
+#   enabled: true

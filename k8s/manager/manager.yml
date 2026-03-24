@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-lister
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-lister-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"] # Pour les déploiements
+    resources: ["deployments"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pod-lister-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pod-lister-role
+subjects:
+  - kind: ServiceAccount
+    name: pod-lister
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manager-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: manager-app
+  template:
+    metadata:
+      labels:
+        app: manager-app
+    spec:
+      serviceAccountName: pod-lister
+      nodeSelector:
+        grp-role: management
+      containers:
+      - name: manager-container
+        image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/demo/api:0.0.4
