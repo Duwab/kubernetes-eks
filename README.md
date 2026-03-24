@@ -25,6 +25,10 @@ envsubst < ./k8s/demo-2/demo-2-core.tpl.yaml > k8s/demo-2/demo-2-core.yaml
 envsubst < ./k8s/manager/manager.tpl.yaml > k8s/manager/manager.yaml
 ```
 
+**Installations**
+
+* [`eksctl`](./docs/install-eksctl.md)
+
 ## Overview
 
 An EKS cluster with 3 node groups :
@@ -34,37 +38,9 @@ An EKS cluster with 3 node groups :
 
 ![Cluster Overview](./docs/eks-cluster-with-3-node-groups.png)
 
-## Install eksctl
+## Summary
 
-According to [official documentation](https://eksctl.io/installation/)
-
-**Unix Install**
-
-```shell
-# for ARM systems, set ARCH to: `arm64`, `armv6` or `armv7`
-ARCH=amd64
-PLATFORM=$(uname -s)_$ARCH
-
-curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$PLATFORM.tar.gz"
-
-# (Optional) Verify checksum
-curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_checksums.txt" | grep $PLATFORM | sha256sum --check
-
-tar -xzf eksctl_$PLATFORM.tar.gz -C /tmp && rm eksctl_$PLATFORM.tar.gz
-
-sudo mv /tmp/eksctl /usr/local/bin
-```
-
-**MacOS Install**
-
-```shell
-brew tap weaveworks/tap
-brew install weaveworks/tap/eksctl
-```
-
-## Cheat sheet
-
-### Check versions
+### Configure CLI `aws` and `kubectl`
 
 ```shell
 # link to AWS
@@ -84,6 +60,57 @@ kubectl config get-contexts arn:aws:eks:$AWS_REGION:$AWS_ACCOUNT_ID:cluster/$CLU
 kubectl config current-context
 kubectl config view --minify -o jsonpath='{.contexts[0].context.namespace}'
 ```
+
+### Create and play with cluster
+
+```shell
+eksctl create cluster -f cluster-config.yaml
+aws eks update-kubeconfig --region $CLUSTER_REGION --name $CLUSTER_NAME
+k get nodes --selector grp-role=management
+
+# Simple jpetazzo/color example
+k create deployment blue --image jpetazzo/color
+k expose deploy blue --port 80 --type=NodePort
+k get svc # for external port
+k get nodes -o wide # for node IP
+curl <node-ip>:<port> # NB: can be necessary to update Security Groups on AWS side
+
+# run shell in tmp pod
+k run --rm -it --image alpine test
+
+k apply -f k8s/demo/demo-core.yaml
+k config set-context --current --namespace=demo
+
+# check auto-scaling section now
+
+k apply -f k8s/demo/demo-lb.yaml
+
+export CLUSTER_VPC=$(aws eks describe-cluster --name $CLUSTER_NAME --region $CLUSTER_REGION --query "cluster.resourcesVpcConfig.vpcId" --output text)
+
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update eks
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+    --namespace kube-system \
+    --set clusterName=$CLUSTER_NAME \
+    --set serviceAccount.create=false \
+    --set region=${CLUSTER_REGION} \
+    --set vpcId=${CLUSTER_VPC} \
+    --set serviceAccount.name=aws-load-balancer-controller
+
+k get ingress -n demo
+
+docker compose build
+docker compose push
+k apply -f k8s/demo/demo-core.yaml
+
+k scale deployment/deployment-demo --replicas=10
+# check AWS Console to configure EKS Auto Mode from overview
+
+k delete -f k8s/demo/demo-core.yaml -f k8s/demo/demo-lb.yaml
+eksctl delete cluster -f cluster-config.yaml
+```
+
+## Cheat sheet
 
 ### EKS management
 
@@ -169,55 +196,6 @@ Then:
 
 * deploy the Portainer Agent on the Kubernetes cluster: `portainer-agent-k8s-nodeport.yaml`
 * Go to Portainer Server & connect to the agent
-
-# Summary
-
-```shell
-eksctl create cluster -f cluster-config.yaml
-aws eks update-kubeconfig --region $CLUSTER_REGION --name $CLUSTER_NAME
-k get nodes --selector grp-role=management
-
-# Simple jpetazzo/color example
-k create deployment blue --image jpetazzo/color
-k expose deploy blue --port 80 --type=NodePort
-k get svc # for external port
-k get nodes -o wide # for node IP
-curl <node-ip>:<port> # NB: can be necessary to update Security Groups on AWS side
-
-# run shell in tmp pod
-k run --rm -it --image alpine test
-
-k apply -f k8s/demo/demo-core.yaml
-k config set-context --current --namespace=demo
-
-# check auto-scaling section now
-
-k apply -f k8s/demo/demo-lb.yaml
-
-export CLUSTER_VPC=$(aws eks describe-cluster --name $CLUSTER_NAME --region $CLUSTER_REGION --query "cluster.resourcesVpcConfig.vpcId" --output text)
-
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update eks
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-    --namespace kube-system \
-    --set clusterName=$CLUSTER_NAME \
-    --set serviceAccount.create=false \
-    --set region=${CLUSTER_REGION} \
-    --set vpcId=${CLUSTER_VPC} \
-    --set serviceAccount.name=aws-load-balancer-controller
-
-k get ingress -n demo
-
-docker compose build
-docker compose push
-k apply -f k8s/demo/demo-core.yaml
-
-k scale deployment/deployment-demo --replicas=10
-# check AWS Console to configure EKS Auto Mode from overview
-
-k delete -f k8s/demo/demo-core.yaml -f k8s/demo/demo-lb.yaml
-eksctl delete cluster -f cluster-config.yaml
-```
 
 
 ## Auto scaling encore
