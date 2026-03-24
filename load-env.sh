@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 INITIAL_DIR=$(pwd)
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -15,6 +13,6 @@ fi
 set -a
 . .env
 set +a
-printenv | grep AWS
+printenv | grep 'AWS\|CLUSTER'
 
 cd $INITIAL_DIR

@@ -20,6 +20,9 @@ printenv | grep AWS
 # CLUSTER_REGION=...
 
 envsubst < cluster-config.tpl.yaml > cluster-config.yaml
+envsubst < ./k8s/demo/demo-core.tpl.yaml > k8s/demo/demo-core.yaml
+envsubst < ./k8s/demo-2/demo-2-core.tpl.yaml > k8s/demo-2/demo-2-core.yaml
+envsubst < ./k8s/manager/manager.tpl.yaml > k8s/manager/manager.yaml
 ```
 
 ## Overview
@@ -88,9 +91,9 @@ Check [AWS > EKS > Quick start](https://docs.aws.amazon.com/fr_fr/eks/latest/use
 
 ```shell
 eksctl create cluster -f cluster-config.yaml
-eksctl create cluster -n my-project --region=$AWS_REGION
+# eksctl create cluster -n my-project --region=$AWS_REGION
+# eksctl delete cluster -n my-project --region=$AWS_REGION
 
-export CLUSTER_REGION=$AWS_REGION
 export CLUSTER_VPC=$(aws eks describe-cluster --name $CLUSTER_NAME --region $CLUSTER_REGION --query "cluster.resourcesVpcConfig.vpcId" --output text)
 
 # Run project
@@ -173,6 +176,13 @@ Then:
 eksctl create cluster -f cluster-config.yaml
 aws eks update-kubeconfig --region $CLUSTER_REGION --name $CLUSTER_NAME
 k get nodes --selector grp-role=management
+
+# Simple jpetazzo/color example
+k create deployment blue --image jpetazzo/color
+k expose deploy blue --port 80 --type=NodePort
+k get svc # for external port
+k get nodes -o wide # for node IP
+curl <node-ip>:<port> # NB: can be necessary to update Security Groups on AWS side
 
 k apply -f k8s/demo/demo-core.yaml
 k config set-context --current --namespace=demo
@@ -310,7 +320,7 @@ helm upgrade/uninstall aws-eks-autoscaler
 ## Manager app
 
 ```shell
-k apply -f k8s/manager/manager.yml
+k apply -f k8s/manager/manager.yaml
 k get pods --selector=app=manager-app -n default
 k exec -it manager-app-55c6747c7c-g9mwb -- bash
 node kube/scale-pods.js

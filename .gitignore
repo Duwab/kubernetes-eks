@@ -1,2 +1,5 @@
 .env
 /cluster-config.yaml
+k8s/demo/demo-core.yaml
+k8s/demo-2/demo-2-core.yaml
+k8s/manager/manager.yaml
