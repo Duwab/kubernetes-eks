@@ -143,10 +143,14 @@ docker compose build
 docker compose push
 ```
 
-### Push docker images to ECR
+### Cleanup
 
 ```shell
+# Specific resources removal
 k delete -f k8s/demo/demo-core.yaml -f k8s/demo/demo-lb.yaml
+helm uninstall aws-eks-autoscaler
+
+# Full EKS cluster removal
 eksctl delete cluster -f cluster-config.yaml
 ```
 
