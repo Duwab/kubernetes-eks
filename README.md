@@ -184,6 +184,9 @@ k get svc # for external port
 k get nodes -o wide # for node IP
 curl <node-ip>:<port> # NB: can be necessary to update Security Groups on AWS side
 
+# run shell in tmp pod
+k run --rm -it --image alpine test
+
 k apply -f k8s/demo/demo-core.yaml
 k config set-context --current --namespace=demo
 
