@@ -38,7 +38,7 @@ An EKS cluster with 3 node groups :
 
 ![Cluster Overview](./docs/eks-cluster-with-3-node-groups.png)
 
-## Summary
+## Getting Started
 
 ### Configure CLI `aws` and `kubectl`
 
@@ -61,7 +61,7 @@ kubectl config current-context
 kubectl config view --minify -o jsonpath='{.contexts[0].context.namespace}'
 ```
 
-### Create and play with cluster
+### Create cluster
 
 ```shell
 eksctl create cluster -f cluster-config.yaml
@@ -80,9 +80,45 @@ k run --rm -it --image alpine test
 
 k apply -f k8s/demo/demo-core.yaml
 k config set-context --current --namespace=demo
+```
 
-# check auto-scaling section now
+### Setup Auto-scaling
 
+Check [./docs/auto-scaling](./docs/auto-scaling.md) for more details
+
+```shell
+helm repo add autoscaler https://kubernetes.github.io/autoscaler
+
+export NODE_GROUP_ASG_NAME_1=$(aws autoscaling describe-auto-scaling-groups \
+  --query "AutoScalingGroups[?Tags[?Key=='eks:nodegroup-name' && Value=='eks-grp-1']].AutoScalingGroupName | [0]" \
+  --output text)
+export NODE_GROUP_ASG_NAME_2=$(aws autoscaling describe-auto-scaling-groups \
+  --query "AutoScalingGroups[?Tags[?Key=='eks:nodegroup-name' && Value=='eks-grp-2']].AutoScalingGroupName | [0]" \
+  --output text)
+
+# https://github.com/kubernetes/autoscaler/blob/master/charts/cluster-autoscaler/values.yaml
+helm install aws-eks-autoscaler autoscaler/cluster-autoscaler \
+    --namespace kube-system \
+    --set "autoscalingGroups[0].name=$NODE_GROUP_ASG_NAME_1" \
+    --set "autoscalingGroups[0].maxSize=5" \
+    --set "autoscalingGroups[0].minSize=0" \
+    --set "autoscalingGroups[1].name=$NODE_GROUP_ASG_NAME_2" \
+    --set "autoscalingGroups[1].maxSize=5" \
+    --set "autoscalingGroups[1].minSize=0" \
+    --set nodeSelector."grp-role"=management \
+    --set "extraArgs.scale-down-delay-after-add=1m" \
+    --set "extraArgs.scale-down-unneeded-time=1m" \
+    --set awsRegion=$AWS_REGION
+
+./helpers/show-node-groups.sh
+./helpers/logs-autoscaler.sh
+
+k scale deployment/deployment-demo --replicas=20
+```
+
+### Setup Load Balancer
+
+```shell
 k apply -f k8s/demo/demo-lb.yaml
 
 export CLUSTER_VPC=$(aws eks describe-cluster --name $CLUSTER_NAME --region $CLUSTER_REGION --query "cluster.resourcesVpcConfig.vpcId" --output text)
@@ -98,14 +134,19 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
     --set serviceAccount.name=aws-load-balancer-controller
 
 k get ingress -n demo
+```
 
+### Push docker images to ECR
+
+```shell
 docker compose build
 docker compose push
-k apply -f k8s/demo/demo-core.yaml
 
-k scale deployment/deployment-demo --replicas=10
-# check AWS Console to configure EKS Auto Mode from overview
+```
 
+### Push docker images to ECR
+
+```shell
 k delete -f k8s/demo/demo-core.yaml -f k8s/demo/demo-lb.yaml
 eksctl delete cluster -f cluster-config.yaml
 ```
@@ -196,106 +237,6 @@ Then:
 
 * deploy the Portainer Agent on the Kubernetes cluster: `portainer-agent-k8s-nodeport.yaml`
 * Go to Portainer Server & connect to the agent
-
-
-## Auto scaling encore
-
-Ajouter ces policies à l'auto-scaling group
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "autoscaling:DescribeAutoScalingGroups",
-        "autoscaling:DescribeAutoScalingInstances",
-        "autoscaling:SetDesiredCapacity",
-        "autoscaling:TerminateInstanceInAutoScalingGroup"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-Pour tricher, on peut mettre AutoScalingFullAccess
-
-Ou alors ça fonctionne si on le met dans cluster config (cf [eksctl schema](https://eksctl.io/usage/schema))
-
-Egalement activer EKS Auto Mode via la console.
-
-Ajouter à eksctl-$CLUSTER_NAME-cluster-ServiceRole-7QS5IRmbtkBk les règles
-
-AmazonEKSBlockStoragePolicy
-AmazonEKSComputePolicy
-AmazonEKSLoadBalancingPolicy
-AmazonEKSNetworkingPolicy
-
-https://docs.aws.amazon.com/eks/latest/userguide/automode-get-started-eksctl.html
-
-
-Création d'un seul role IAM sur le compte AWS pour l'administration d'un cluster EKS
-
-* AmazonEKSBlockStoragePolicy
-* AmazonEKSClusterPolicy
-* AmazonEKSComputePolicy
-* AmazonEKSLoadBalancingPolicy
-* AmazonEKSNetworkingPolicy
-* AmazonEKSVPCResourceController
-
-
-Cluster role missing recommended managed policies
-The cluster role must have the following managed policies or equivalent permissions to use EKS Auto Mode:
-AmazonEKSBlockStoragePolicy
-AmazonEKSComputePolicy
-AmazonEKSLoadBalancingPolicy
-AmazonEKSNetworkingPolicy
-
-
-Puis
-
-```shell
-helm repo add autoscaler https://kubernetes.github.io/autoscaler
-
-# KO Method 1 - Using Autodiscovery
-# helm install aws-eks-autscaler autoscaler/cluster-autoscaler \
-#     --set 'autoDiscovery.clusterName'=$CLUSTER_NAME
-
-# TODO: find a way to
-#   * automatically add policies
-#   * find auto-scaling group name
-
-# Method 2 - Specifying groups manually
-# export NODE_GROUP_MNG_ASG_NAME="eks-eks-mng-cec9dafe-6972-b52e-3e93-bd6e75c7ea03"
-export NODE_GROUP_ASG_NAME_1=$(aws autoscaling describe-auto-scaling-groups \
-  --query "AutoScalingGroups[?Tags[?Key=='eks:nodegroup-name' && Value=='eks-grp-1']].AutoScalingGroupName | [0]" \
-  --output text)
-export NODE_GROUP_ASG_NAME_2=$(aws autoscaling describe-auto-scaling-groups \
-  --query "AutoScalingGroups[?Tags[?Key=='eks:nodegroup-name' && Value=='eks-grp-2']].AutoScalingGroupName | [0]" \
-  --output text)
-
-# https://github.com/kubernetes/autoscaler/blob/master/charts/cluster-autoscaler/values.yaml
-helm install aws-eks-autoscaler autoscaler/cluster-autoscaler \
-    --namespace kube-system \
-    --set "autoscalingGroups[0].name=$NODE_GROUP_ASG_NAME_1" \
-    --set "autoscalingGroups[0].maxSize=5" \
-    --set "autoscalingGroups[0].minSize=0" \
-    --set "autoscalingGroups[1].name=$NODE_GROUP_ASG_NAME_2" \
-    --set "autoscalingGroups[1].maxSize=5" \
-    --set "autoscalingGroups[1].minSize=0" \
-    --set nodeSelector."grp-role"=management \
-    --set "extraArgs.scale-down-delay-after-add=1m" \
-    --set "extraArgs.scale-down-unneeded-time=1m" \
-    --set awsRegion=$AWS_REGION
-
-# kubectl get pods --all-namespaces -o wide --field-selector spec.nodeName=...
-./helpers/show-node-groups.sh
-./helpers/logs-autoscaler.sh
-
-helm upgrade/uninstall aws-eks-autoscaler
-```
 
 
 ## Manager app
